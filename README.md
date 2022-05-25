@@ -28,6 +28,7 @@ These results identify tasks where alignment is a more useful strategy than curi
 - [Installation](#installation)
 - [MAP](#map)
 - [Gfootball](#gfootball)
+- [Visualization](#visualization)
 
 ## Installation
 
