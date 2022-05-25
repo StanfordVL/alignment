@@ -73,4 +73,9 @@ To train and evaluate agents in Academy 3vs1 with keeper task in the Google Rese
 python run_multiagent_sac.py --name scoring_align_110_5M --seeds 3 --radius 0.5 --align-mode 110 --num-iters 50000 --num-gpus 1
 ```
 
+## Visualization
+Below is an example of the emerged behaviors with and without the alignment intrinsic reward in the Cooperative navigation (5v0) task.
+agents cluster with sparse reward only | agents spread out with alignment reward
+-----------------------|-----------------------|
+![](docs/coop_nav_sparse.gif)| ![](docs/coop_nav_align.gif)
 
