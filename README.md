@@ -4,8 +4,6 @@ This repository contains code to train and evaluate multiple agents with and wit
 the alignment intrinsic reward in both the multi-agent particle (MAP) and Google research 
 football (Gfootball) environments.
 
-[[Paper]]()
-
 ## Abstract
 
 Modern multi-agent reinforcement learning frameworks rely on centralized training and reward shaping to perform well.
@@ -36,7 +34,7 @@ These results identify tasks where alignment is a more useful strategy than curi
 
 Please install the `tianshou` package according to the instructions [here](https://github.com/thu-ml/tianshou#installation). 
 
-Additionally, we have provided an conda environment yaml file ```map/marl.yml```, and you can install the conda environment with ```conda env create -f marl.yml``` after changing the ```prefix``` in the file to be your directory.
+Additionally, we have provided a conda environment yaml file ```map/marl.yml```, and you can install the conda environment with ```conda env create -f marl.yml``` after changing the ```prefix``` in the file to be your directory.
 
 ### Gfootball
 
@@ -57,13 +55,13 @@ Alternatively, you can also separately train or evaluate agents in one experimen
 ### Training
 
 ```
-python train_multi_sacd.py --task simple_spread_in --save-models --benchmark --device cuda --rew-norm 1 --buffer-size 2000000 --wandb-enabled 1 --epoch 100 --num-good-agents 5 --obs-radius 0.5 --intr-rew 101 --logdir /scr/zixianma/multiagent/simple_spread
+python train_multi_sacd.py --task simple_spread_in --save-models --benchmark --device cuda --rew-norm 1 --buffer-size 2000000 --wandb-enabled 1 --epoch 100 --num-good-agents 5 --obs-radius 0.5 --intr-rew 101 --logdir log/simple_spread
 ```
 
 ### Evaluation
 
 ```
-python evaluate_multi_sacd.py --savedir result --amb-init 1 --logdir /scr/zixianma/multiagent/simple_spread
+python evaluate_multi_sacd.py --savedir result --amb-init 1 --logdir log/simple_spread
 ```
 
 ## Gfootball
@@ -75,6 +73,13 @@ python run_multiagent_sac.py --name scoring_align_110_5M --seeds 3 --radius 0.5 
 ```
 
 ## Visualization
+
+You can use the following command to visualize the policies learned by the agents in the multi-agent particle environment.
+
+```
+python visualize_multi_sacd.py --benchmark --save-video --logdir log/simple_spread
+```
+
 Below is an example of the emerged behaviors with and without the alignment intrinsic reward in the Cooperative navigation (5v0) task.
 agents cluster with sparse reward only | agents spread out with alignment reward
 -----------------------|-----------------------|
