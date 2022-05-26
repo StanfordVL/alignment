@@ -21,7 +21,7 @@ These results identify tasks where alignment is a more useful strategy than curi
 
 ## Alignment illustraion
 
-| ![Alignment](https://github.com/StanfordVL/alignment/raw/main/docs/alignment.png) |
+| ![Alignment](docs/alignment.png) |
 |:--:|
 
 ## Contents
