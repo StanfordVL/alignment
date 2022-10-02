@@ -38,7 +38,10 @@ You will need the following dependencies to run experiments in the MAP environme
 - tensorboard (for logging)
 - wandb (for logging)
 - opencv (for visualization)
+- pyglet (for visualization)
 - tqdm (for progress checking)
+
+In addition, we used the reinforcement learning library [tianshou](https://github.com/thu-ml/tianshou) and adapted their implementation of the Soft-Actor-Critic algorithm to our experiments. 
 
 ### Gfootball
 
@@ -49,7 +52,7 @@ The original football environment assumes full observability. Since our method m
 
 ### MAP
 
-You can simply train and evaluate agents with `map/train_multi_sacd.py` and `map/evaluate_multi_sacd.py` respectively. Below are two examples for training and evaluation:
+You can simply train and evaluate agents in the MAP environment with `map/train_multi_sacd.py` and `map/evaluate_multi_sacd.py`. Below are two examples for training and evaluation:
 
 ```
 python train_multi_sacd.py --task simple_spread_in --num-good-agents 5 --obs-radius 0.5 --intr-rew elign_team --epoch 5 --save-models --benchmark  --logdir log/simple_spread
