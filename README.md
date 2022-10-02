@@ -78,8 +78,8 @@ You can use the following command to visualize the policies learned by the agent
 python visualize_multi_sacd.py --benchmark --save-video --logdir log/simple_spread
 ```
 
-Below is an example of the emerged behaviors with and without the alignment intrinsic reward in the Cooperative navigation (5v0) task.
-agents cluster with sparse reward only | agents spread out with alignment reward
+Below is an example of the emerged behaviors with and without the ELIGN intrinsic reward in the Cooperative navigation (5v0) task.
+agents cluster with sparse reward only | agents spread out with the ELIGN intrinsic reward
 -----------------------|-----------------------|
 ![](docs/coop_nav_sparse.gif)| ![](docs/coop_nav_align.gif)
 
