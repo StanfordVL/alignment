@@ -49,7 +49,7 @@ def get_args():
         default='cuda' if torch.cuda.is_available() else 'cpu')
 
     # Training arguments
-    parser.add_argument('--buffer-size', type=int, default=1000000)
+    parser.add_argument('--buffer-size', type=int, default=2000000)
     parser.add_argument('--actor-lr', type=float, default=1e-3)
     parser.add_argument('--critic-lr', type=float, default=1e-3)
     parser.add_argument('--epoch', type=int, default=10)
@@ -67,7 +67,7 @@ def get_args():
     parser.add_argument('--tau', type=float, default=0.01)
     parser.add_argument('--gamma', type=float, default=0.95)
     parser.add_argument('--alpha', type=float, default=0.1)
-    parser.add_argument('--rew-norm', type=int, default=0)
+    parser.add_argument('--rew-norm', type=int, default=1)
     parser.add_argument('--ignore-done', type=int, default=0)
     parser.add_argument('--n-step', type=int, default=1)
 
