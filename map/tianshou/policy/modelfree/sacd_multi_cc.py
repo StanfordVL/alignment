@@ -11,7 +11,7 @@ from tianshou.data import Batch, to_torch, to_torch_as, ReplayBuffer
 
 
 class SACDMultiCCPolicy(BasePolicy):
-    """Implementation of Discrete Soft Actor-Critic. arXiv:1910.07207
+    """Implementation of multiagent Soft Actor-Critic with centralized critics.
 
     :param torch.nn.Module actor: the actor network following the rules in
         :class:`~tianshou.policy.BasePolicy`. (s -> logits)
@@ -54,7 +54,6 @@ class SACDMultiCCPolicy(BasePolicy):
                  reward_normalization: bool = False,
                  ignore_done: bool = False,
                  estimation_step: int = 1,
-                 act_dims: List[int] = [],
                  grads_logging: bool = False,
                  **kwargs) -> None:
         super().__init__(**kwargs)
@@ -67,7 +66,6 @@ class SACDMultiCCPolicy(BasePolicy):
         self._n_step = estimation_step
         self._rm_done = ignore_done
         self.dist_fn = dist_fn
-        self.act_dims = act_dims
 
         assert len(actors) == len(critic1s) == len(critic2s)
         self.actors, self.actor_optims = actors, actor_optims

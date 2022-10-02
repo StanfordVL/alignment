@@ -104,10 +104,6 @@ def offpolicy_trainer(
                         result['n/st'] // collect_per_step, t.total - t.n)):
                     global_step += 1
                     sample_batch, intr_rews = train_collector.sample(batch_size)
-                    # if policy.world_models:
-                    #     _, intr_rews = policy.calculate_intrinsic_reward(sample_batch)
-                    # else:
-                    #     intr_rews = {}
                     losses = policy.learn(sample_batch)
                     for k in result.keys():
                         data[k] = f'{result[k]:.2f}'
@@ -160,9 +156,9 @@ def offpolicy_trainer(
         if verbose:
             print(f'Epoch #{epoch}: test_reward: {result["rew"]:.6f}, '
                   f'best_reward: {best_reward:.6f} in #{best_epoch}')
-        if epoch - best_epoch >= 100:
-            print("Early stopping as the best eval reward has not changed after 100 epochs.")
-            break
+        # if epoch - best_epoch >= 100:
+        #     print("Early stopping when the best eval reward has not changed after 100 epochs.")
+        #     break
         if stop_fn and stop_fn(best_reward):
             break
     return gather_info(

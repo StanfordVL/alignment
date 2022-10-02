@@ -55,7 +55,6 @@ F = nn.functional
 logger = logging.getLogger(__name__)
 
 
-
 def to_torch(x: Union[torch.Tensor, dict, np.ndarray],
              dtype: Optional[torch.dtype] = None,
              device: Union[str, int] = 'cpu'
@@ -143,7 +142,6 @@ def action_distribution_fn(
     policy: Policy,
     model: ModelV2,
     input_dict: ModelInputDict,
-    *,
     state_batches: Optional[List[TensorType]] = None,
     seq_lens: Optional[TensorType] = None,
     prev_action_batch: Optional[TensorType] = None,
@@ -219,8 +217,6 @@ def build_world_model(
 
 
 def postprocess_trajectory_torch(policy, batch, other_agent_batches, episode):
-    # print("players position:", batch[SampleBatch.OBS][:, :22])
-    # print("players direction:", batch[SampleBatch.OBS][:, 22:45])
     batch = postprocess_trajectory(policy, batch, other_agent_batches, episode)
     if other_agent_batches:
         batch = add_intrinsic_reward(policy, batch,other_agent_batches)
@@ -260,7 +256,6 @@ def imagine_agent_j_obs(batch, j_list, radius):
     game_mode_onehot_idx = np.array(range(num_player*5+9, num_player*5+9+7))
     assert num_player*5+9+7 == batch[SampleBatch.OBS].shape[1]
     obs_i = batch[SampleBatch.OBS]
-    # print('obs i:', obs_i)
     player_id = np.argmax(obs_i[:, active_player_onehot_idx])
     raw_all_player_pos = obs_i[:, player_pos_idx] #(bs,11*2)
     all_player_pos = np.reshape(raw_all_player_pos, (batch_size,num_agent,2)) #(bs,11,2)
@@ -274,7 +269,6 @@ def imagine_agent_j_obs(batch, j_list, radius):
     
     obs_j_list = []
     for j_id in j_list:
-        # print('i & j:', player_id, j_id)
         if j_id == player_id:
             obs_j_list.append(obs_i)
         else:
@@ -285,23 +279,19 @@ def imagine_agent_j_obs(batch, j_list, radius):
                 j_pos = all_adv_pos[:, j_id-num_agent, :]
             
             j_i_diff = j_pos - i_pos 
-            # print(all_player_pos)
-            # print(j_pos) 
-            # print('diff:', np.sqrt(np.sum(np.square(j_i_diff))))
             j_mask = np.sqrt(np.sum(np.square(j_i_diff), axis=-1)) <= radius
-            # print(j_mask)
             if j_mask == 1: # j is out of i's receptive field
                 j_others_diff =  np.tile(j_pos, (1, num_agent, 1)) - all_player_pos
                 player_mask = np.sqrt(np.sum(np.square(j_others_diff), axis=-1)) <= radius
                 vis_player_idx = np.nonzero(np.repeat(player_mask, 2))[0]
-                # print('teammates:', player_mask, vis_player_idx)
+                
                 j_adv_diff =  np.tile(j_pos, (1, num_adv, 1)) - all_adv_pos
                 adv_mask = np.sqrt(np.sum(np.square(j_adv_diff), axis=-1)) <= radius
                 vis_adv_idx = np.nonzero(np.repeat(adv_mask, 2))[0]
-                # print('adversaries:', adv_mask, vis_adv_idx)
+                
                 j_ball_diff = j_pos - ball_pos[:,:,:-1]
                 ball_mask = np.sqrt(np.sum(np.square(j_ball_diff), axis=-1)) <= radius
-                # print('ball:', ball_mask)
+
                 obs_j[:, vis_player_idx] = raw_all_player_pos[:,vis_player_idx]
                 obs_j[:, num_agent*2+vis_player_idx] = raw_all_player_dir[:,vis_player_idx]
 
@@ -315,7 +305,7 @@ def imagine_agent_j_obs(batch, j_list, radius):
 
                 obs_j[:, active_player_onehot_idx] = obs_i[:, active_player_onehot_idx]
                 obs_j[:, game_mode_onehot_idx] = obs_i[:, game_mode_onehot_idx]
-            # print('obs j:', obs_j)
+
             obs_j_list.append(obs_j)
 
     return obs_j_list
@@ -327,7 +317,7 @@ def add_intrinsic_reward(policy, batch: SampleBatch, other_agent_batches):
     intr_rew = np.zeros(batch[SampleBatch.REWARDS].shape)
     world_model = policy.world_model
     inputs = obs_i
-    if policy.align_mode == 'self':
+    if policy.align_mode == 'elign_self':
         true_next_obs_i = to_torch(batch[SampleBatch.NEXT_OBS])
 
         inputs = np.concatenate((obs_i, np.expand_dims(batch[SampleBatch.ACTIONS], axis=-1)), axis=1) #(bs, obs_dim+1)
@@ -343,11 +333,11 @@ def add_intrinsic_reward(policy, batch: SampleBatch, other_agent_batches):
         # get prediction losses from other agents
         num_player = (obs_size - 16) // 5
         num_agent = len(other_agent_batches) + 1 + 1 #goal keeper #0 is uncontrollable
-        if policy.align_mode == '101':
+        if policy.align_mode == 'elign_team':
             j_list = list(range(1, num_agent)) # first one is goal keeper (not controlled)
-        elif policy.align_mode == '110':
+        elif policy.align_mode == 'elign_adv':
             j_list = list(range(num_agent, num_player))
-        elif policy.align_mode == '111':
+        elif policy.align_mode == 'elign_both':
             j_list = list(range(1, num_player))
         else:
             raise NotSupportedErr
@@ -365,35 +355,31 @@ def add_intrinsic_reward(policy, batch: SampleBatch, other_agent_batches):
 
         input_dict = {}
         input_dict[SampleBatch.OBS] = inputs # inputs is a concatenation of obs AND action
-        # input_dict[SampleBatch.ACTIONS] = act_n
+
         # get the prediction losses 
         pred_next_obs_n, _ = world_model(input_dict)
         
         pred_losses = torch.norm(true_next_obs_n - pred_next_obs_n, p=2, dim=1) #(bs*j, )
         #zero out the losses for invisible agents
         obs_mask = ~np.all(obs_n == -1, axis=1)
-        # print('obs mask:', obs_mask)
+
         pred_losses *= to_torch(obs_mask, device='cuda' if torch.cuda.is_available() else 'cpu', dtype=torch.float)
 
         pred_losses = pred_losses.view(batch_size, -1) #(bs, j)
-        # print('visible agents:', np.sum(obs_mask))
-        # print('pred losses:', pred_losses)
+
         visible_agents = np.sum(obs_mask)
         multiplier = 1 / visible_agents if visible_agents != 0 else 0
-        if policy.align_mode == '101':
+        if policy.align_mode == 'elign_team':
             intr_rew += multiplier * -pred_losses.sum(dim=1).detach().cpu().numpy()
-        elif policy.align_mode == '110':
+        elif policy.align_mode == 'elign_adv':
             intr_rew += multiplier * pred_losses.sum(dim=1).detach().cpu().numpy()
-        elif policy.align_mode == '111':
+        elif policy.align_mode == 'elign_both':
             intr_rew += multiplier * (pred_losses[:, num_agent:num_player].sum(dim=1) - pred_losses[:, 1:num_agent].sum(dim=1)).detach().cpu().numpy()
         else:
             raise NotSupportedErr
-    
-    # print('intr rew before norm:', intr_rew)
+
     intr_rew = 1 / obs_size * intr_rew
-    # print('intr rew after norm:', intr_rew)
-    # print("original reward:", batch[SampleBatch.REWARDS])
-    # print("intrinsic reward:", intr_rew)
+
     batch[SampleBatch.REWARDS] += intr_rew
     return batch
 

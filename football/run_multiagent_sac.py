@@ -40,7 +40,6 @@ from ray.rllib.utils.framework import try_import_tf, try_import_torch
 tf1, tf, tfv = try_import_tf()
 torch, nn = try_import_torch()
 
-# from ray.rllib.examples.models.custom_loss_model import TorchCustomLossModel
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--num-agents', type=int, default=3)
@@ -52,7 +51,7 @@ parser.add_argument('--memory-GB',type=int, default=10)
 parser.add_argument('--logdir', type=str, default='/vision2/u/zixianma/football_results')
 parser.add_argument('--name', type=str, default='exp')
 parser.add_argument('--simple', action='store_true')
-parser.add_argument('--align-mode', type=str, default='101')
+parser.add_argument('--align-mode', type=str, default='elign_team')
 parser.add_argument('--radius', type=float, default=float('inf'))
 parser.add_argument('--seeds', type=int, nargs='+', help='a list of random seeds', required=True)
 
@@ -75,11 +74,8 @@ class RllibGFootball(MultiAgentEnv):
         low=self.env.observation_space.low[0],
         high=self.env.observation_space.high[0],
         dtype=self.env.observation_space.dtype)
-    # print("overall env", self.observation_space)
     self.num_agents = num_agents
-    # self._agent_ids = list(range(self.num_agents))
     self._agent_ids = [f'agent_{id}' for id in range(self.num_agents)]
-    # print('agent ids:', self._agent_ids)
 
   def reset(self):
     original_obs = self.env.reset()
@@ -92,7 +88,6 @@ class RllibGFootball(MultiAgentEnv):
     return obs
 
   def step(self, action_dict):
-    # print("actions:", action_dict)
     actions = []
     for key, value in sorted(action_dict.items()):
       actions.append(value)
@@ -108,7 +103,6 @@ class RllibGFootball(MultiAgentEnv):
       else:
         rewards[key] = r
         obs[key] = o
-    # print("rewards:", rewards)
     dones = {'__all__': d}
     return obs, rewards, dones, infos
 
@@ -118,7 +112,6 @@ if __name__ == '__main__':
   ray.init(num_gpus=args.num_gpus, _memory=args.memory_GB * (1024 ** 3), object_store_memory=args.object_store_memory_GB * (1024 ** 3))
 
   # Simple environment with `num_agents` independent players
-  # print(args.num_agents)
   register_env('gfootball', lambda _: RllibGFootball(args.num_agents))
   single_env = RllibGFootball(args.num_agents)
   obs_space = single_env.observation_space

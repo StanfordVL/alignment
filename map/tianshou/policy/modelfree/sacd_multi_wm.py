@@ -11,7 +11,7 @@ from tianshou.data import Batch, batch, to_torch_as, ReplayBuffer, to_torch
 
 
 class SACDMultiWMPolicy(BasePolicy):
-    """Implementation of Discrete Soft Actor-Critic. arXiv:1910.07207
+    """Implementation of multi-agent Soft Actor-Critic with world models.
 
     :param torch.nn.Module actor: the actor network following the rules in
         :class:`~tianshou.policy.BasePolicy`. (s -> logits)
@@ -32,6 +32,13 @@ class SACDMultiWMPolicy(BasePolicy):
         defaults to ``False``.
     :param bool ignore_done: ignore the done flag while training the policy,
         defaults to ``False``.
+    :param int estimation_step: the number of estimation step, should be an int
+            greater than 0, defaults to 1.
+    :param int num_adv: the number of adversaries
+    :param int num_landmark: the number of landmarks
+    :param list obs_radii: the observable radii of the agents
+    :param str intr_rew_options: a string of the intrinsic reward type being used
+    :param bool grads_logging: whether to log gradients or not
 
     .. seealso::
 
@@ -59,9 +66,8 @@ class SACDMultiWMPolicy(BasePolicy):
                  num_adv: int = 0,
                  num_landmark: int = 0,
                  obs_radii: List[float]=None,
-                 intr_rew_options: str='101',
+                 intr_rew_options: str='elign_team',
                  grads_logging: bool = False,
-                 only_self_pred: bool = False,
                  **kwargs) -> None:
         super().__init__(**kwargs)
         assert 0 <= tau <= 1, 'tau should in [0, 1]'
@@ -98,7 +104,6 @@ class SACDMultiWMPolicy(BasePolicy):
         self.total_num_lm = num_landmark
         self.obs_radii = obs_radii 
         self.partial_obs = max(self.obs_radii) < float('inf')
-        self.only_self_pred = only_self_pred
         self.grads_logging = grads_logging
         self.max_error = 0
         
@@ -185,17 +190,15 @@ class SACDMultiWMPolicy(BasePolicy):
         batch_size = obs_i.shape[0]
 
         # observation has to have [agent_vis_mask] + [lm_vis_mask] + agent_pos + agent_vel + entity_pos as the initial elements
-        agt_mask = obs_i[:, :num_agts] #agents visible to i, (bs,n_agts)
-        lm_mask = obs_i[:, num_agts:num_agts+num_lms] #landmarks visible to i, (bs,n_lms)
+        agt_mask = obs_i[:, :num_agts] # agents visible to i, (bs,n_agts)
+        lm_mask = obs_i[:, num_agts:num_agts+num_lms] # landmarks visible to i, (bs,n_lms)
 
-        agt_pos = np.reshape(obs_i[:, num_agts+num_lms:3*num_agts+num_lms], (batch_size, num_agts, 2)) #visible agent pos,(bs,n_agts,2)
-        agt_vel =  np.reshape(obs_i[:, 3*num_agts+num_lms:5*num_agts+num_lms], (batch_size, num_agts, 2)) #visible agent vel, (bs,n_agts*2)
-        lm_pos =  np.reshape(obs_i[:, 5*num_agts+num_lms:5*num_agts+3*num_lms],  (batch_size, num_lms, 2)) #visible landmark pos, (bs,n_lms*2)
+        agt_pos = np.reshape(obs_i[:, num_agts+num_lms:3*num_agts+num_lms], (batch_size, num_agts, 2)) # visible agent pos,(bs,n_agts,2)
+        agt_vel =  np.reshape(obs_i[:, 3*num_agts+num_lms:5*num_agts+num_lms], (batch_size, num_agts, 2)) # visible agent vel, (bs,n_agts*2)
+        lm_pos =  np.reshape(obs_i[:, 5*num_agts+num_lms:5*num_agts+3*num_lms],  (batch_size, num_lms, 2)) # visible landmark pos, (bs,n_lms*2)
         
         obs_j_list, sum_obs_percents = [], 0.0
-        # print('init obs:', obs_i[:5, :])
         for j in j_list:
-            # print("agt j:", j)
             if j == i:
                 obs_j_list.append(obs_i)
             else:
@@ -210,20 +213,12 @@ class SACDMultiWMPolicy(BasePolicy):
                 lm_pos_delta = np.tile(j_pos, (1, num_lms, 1)) - lm_pos
                 j_agt_mask = np.sqrt(np.sum(np.square(agt_pos_delta), axis=-1)) <= self.obs_radii[j] #agts visible to j, (bs,n_agts)
                 j_lm_mask =  np.sqrt(np.sum(np.square(lm_pos_delta), axis=-1)) <= self.obs_radii[j] #landmarks visible to j, (bs,n_lms)
-                # print("j mask:", j_mask[:5, :])
-                # print("j pos:", j_pos[:5, :])
-                # print("agt pos:", agt_pos[:5, :])
-                # print("j agt mask:", j_agt_mask[:5, :])
-                # print("j lm mask:", j_lm_mask[:5, :])
 
                 j_agt_mask = np.expand_dims(np.logical_and(j_agt_mask,agt_mask), axis=-1) # the agents visible by both agts i and j
                 j_lm_mask = np.expand_dims(np.logical_and(j_lm_mask,lm_mask), axis=-1) # the landmarks visible by both agts i and j
                 agt_pos_j = j_agt_mask * agt_pos
                 agt_vel_j = j_agt_mask * agt_vel
                 lm_pos_j = j_lm_mask * lm_pos
-                # print("agt pos j:", agt_pos_j[:5, :])
-                # print("agent vel j:", agt_vel_j[:5, :])
-                # print("lm pos j:", lm_pos_j[:5, :])
 
                 obs_j[:, :num_agts] = np.squeeze(j_agt_mask)
                 obs_j[:, num_agts:num_agts+num_lms] = np.squeeze(j_lm_mask)
@@ -231,12 +226,8 @@ class SACDMultiWMPolicy(BasePolicy):
                 obs_j[:, 3*num_agts+num_lms:5*num_agts+num_lms] = np.reshape(agt_vel_j, (batch_size, num_agts*2))
                 obs_j[:, 5*num_agts+num_lms:5*num_agts+3*num_lms] = np.reshape(lm_pos_j, (batch_size, num_lms*2))
                 final_obs_j = np.tile(j_mask, (1, obs_j.shape[1])) * obs_j
-                # print("if j is visible?", j_mask[:5, :])
-                # print("final obs j:", final_obs_j[:5, :])
                 obs_j_list.append(final_obs_j)
                 obs_percent = np.count_nonzero(final_obs_j, axis=1) / final_obs_j.shape[-1]
-                # print(f"final obs {j}", final_obs_j[:10, :])
-                # print(f"percent for {j}:", obs_percent[:10])
                 sum_obs_percents += obs_percent
 
         return obs_j_list, sum_obs_percents
@@ -246,44 +237,34 @@ class SACDMultiWMPolicy(BasePolicy):
         num_agents = self.total_num_agt
         batch_size = batch.obs.shape[0]
         intr_rew = np.zeros(batch.rew.shape)
-        if not self.partial_obs or self.only_self_pred or self.intr_rew_options in ['curiosity', 'self_adv']: # for full obs, self-pred baseline (partial obs) and curiosity baseline
+        # for full obs, curiosity baseline and ELIGN_self
+        if not self.partial_obs or self.intr_rew_options in ['curio_self', 'elign_self']: 
             # compute my own prediction loss and assume it's also agent j's prediction loss on my obs + act
-            l2_losses = np.zeros((batch_size, num_agents)) # (batch_size, n_agents)
+            l2_losses = np.zeros((batch_size, num_agents))
             for i in range(self.num_adv, num_agents):
                 world_model = self.world_models[i]
                 input_i = np.concatenate((batch.obs[:,i], np.expand_dims(batch.act[:,i], axis=-1)), axis=1)
                 pred_next_obs_i = world_model(input_i)
                 l2_losses[:, i] = np.linalg.norm(batch.obs_next[:,i] - pred_next_obs_i.detach().cpu().numpy(), axis=1)
-                if self.intr_rew_options == 'self_adv':
-                    adv_mask = batch.obs[:,i][:, :self.num_adv] # adversaries' visibility masks are positioned the first in dim=1
-                    # print(f"adv mask for {i}", adv_mask[:10, :])
-                    loss_mask = ~np.all(adv_mask == 0, axis=1)
-                    # print(f"loss mask for {i}", loss_mask[:10])
-                    # print(f"BEFORE loss for {i}", l2_losses[:10, i])
-                    l2_losses[:, i] *= loss_mask
-                    # print(f"AFTER loss for {i}", l2_losses[:10, i])
             if np.max(l2_losses) > self.max_error:
                 self.max_error = np.max(l2_losses)
-
-            if self.intr_rew_options == 'self_adv':
-                intr_rew = l2_losses
-            elif self.intr_rew_options == 'curiosity':
+            if self.intr_rew_options == 'curio_self':
                 intr_rew = l2_losses / self.max_error
-            else: # only self pred
-                intr_rew = -l2_losses # (batch_size, n_agents)
-            
+            else: # only ELIGN_self
+                intr_rew = -l2_losses # (batch_size, n_agents)  
         else:
-            if self.intr_rew_options == '111': # intr rew from both both
+            if self.intr_rew_options == 'elign_both': # intr rew from both both
                 j_list = list(range(num_agents))
-            elif self.intr_rew_options == '101' or self.intr_rew_options == 'ma_curiosity': # intr rew from good agts only
+            elif self.intr_rew_options == 'elign_team' or self.intr_rew_options == 'curio_team': # intr rew from good agts only
                 j_list = list(range(self.num_adv, num_agents))
-            elif self.intr_rew_options == '110': # intr rew from adversaries only
+            elif self.intr_rew_options == 'elign_adv': # intr rew from adversaries only
                 j_list = list(range(0, self.num_adv))
-            else:  # no intr rew
-                print("Invalid intr rew options. Should use SACDMultiPolicy instead.")
+            else:
+                print("Invalid intr rew options.")
                 raise NotImplementedError
-            inter_obs_percents = np.zeros((batch_size, num_agents))
-            inter_freqs = np.zeros((batch_size, num_agents))
+            # for debugging purporses
+            # inter_obs_percents = np.zeros((batch_size, num_agents))
+            # inter_freqs = np.zeros((batch_size, num_agents))
             for i in range(self.num_adv, num_agents): # apply intr rew only on good agents
                 obs_j_list, sum_obs_percents = self.imagine_agent_j_obs(batch.obs[:,i], i, j_list)
                 
@@ -297,7 +278,7 @@ class SACDMultiWMPolicy(BasePolicy):
                 true_next_obs_n = np.concatenate([batch.obs_next[:,i]] * len(j_list), axis=0) #(bs*j, obs_dim)
                 true_next_obs_n = to_torch(true_next_obs_n, device=self.world_models[i].device, dtype=torch.float)
 
-                # get the prediction losses and 
+                # get the prediction losses
                 world_model = self.world_models[i]
                 pred_next_obs_n = world_model(inputs)
                 
@@ -307,38 +288,37 @@ class SACDMultiWMPolicy(BasePolicy):
                 obs_mask = to_torch(~np.all(obs_n == 0, axis=1), device=self.world_models[i].device, dtype=torch.float)
                 pred_losses *= obs_mask
                 nonzero_obs_count = np.count_nonzero(batch.obs[:,i][:, j_list], axis=1)
-                inter_num = nonzero_obs_count - 1 # minus self 
 
-                inter_obs_percents[:, i] = sum_obs_percents / np.maximum(inter_num, np.ones(inter_num.shape)) # avoid dividing by 0
-                inter_freqs[:, i] = np.minimum(inter_num, np.ones(inter_num.shape)) # 1 if there's any intersection
-                # assert np.count_nonzero(inter_obs_percents[:, i] == 0) >= np.count_nonzero(inter_num == 0)
-                # print(f'inter freq for {i}:', inter_freqs[:10, i])
-                # print(f'inter obs size for {i}:', inter_obs_percents[:10, i] )
+                # for debugging 
+                # inter_num = nonzero_obs_count - 1 # minus self 
+                # inter_obs_percents[:, i] = sum_obs_percents / np.maximum(inter_num, np.ones(inter_num.shape)) # avoid dividing by 0
+                # inter_freqs[:, i] = np.minimum(inter_num, np.ones(inter_num.shape)) # 1 if there's any intersection
 
                 pred_losses = pred_losses.view(batch_size, -1) #(bs, j)
 
-                if self.intr_rew_options == '111': # intr rew from both both
+                if self.intr_rew_options == 'elign_both': # intr rew from both both
                     # incentivize good agts to be 1) unpredictable by advs and 2) predictable by good agts
                     intr_rew[:, i] += 1 / nonzero_obs_count * (pred_losses[:, :self.num_adv].sum(dim=1) - pred_losses[:, self.num_adv:].sum(dim=1)).detach().cpu().numpy()
-                elif self.intr_rew_options == '101': # intr rew from good agts only
+                elif self.intr_rew_options == 'elign_team': 
+                    # intr rew from good agts only
                     intr_rew[:, i] += 1 / nonzero_obs_count * -pred_losses.sum(dim=1).detach().cpu().numpy()
-                elif self.intr_rew_options == '110' or self.intr_rew_options == 'ma_curiosity': # maximizing losses: 1) intr rew from adversaries only; 2) ma curiosity
+                elif self.intr_rew_options == 'elign_adv' or self.intr_rew_options == 'curio_team':
+                    # maximizing losses in these cases: 1) intr rew from adversaries only; 2) ma curiosity
                     intr_rew[:, i] += 1 / nonzero_obs_count * pred_losses.sum(dim=1).detach().cpu().numpy()
                 else:  # no intr rew
                     print("Invalid intr rew options. Should use SACDMultiPolicy instead.")
                     raise NotImplementedError
-        
-    
+
         intr_rew = 1 / (batch.obs.shape[-1]) * intr_rew
 
         output = {}
-        #for i in range(num_agents):
         for i in range(self.num_adv, num_agents):
             output[f'intr_rew/actor_{i}'] = intr_rew[:, i].mean()
-            if self.partial_obs and self.intr_rew_options in ['101', '110', '111', 'ma_curiosity']:
-                output[f'inter_freq/agent_{i}'] = inter_freqs[:, i].mean()
-                denom = output[f'inter_freq/agent_{i}'] if output[f'inter_freq/agent_{i}'] != 0.0 else 1.0
-                output[f'inter_obs_size/agent_{i}'] = (inter_obs_percents[:, i] / denom).mean()
+            # for debugging
+            # if self.partial_obs and self.intr_rew_options in ['elign_team', 'elign_adv', 'elign_both', 'curio_team']:
+                # output[f'inter_freq/agent_{i}'] = inter_freqs[:, i].mean()
+                # denom = output[f'inter_freq/agent_{i}'] if output[f'inter_freq/agent_{i}'] != 0.0 else 1.0
+                # output[f'inter_obs_size/agent_{i}'] = (inter_obs_percents[:, i] / denom).mean()
         batch.rew += intr_rew
         return batch, output
 
@@ -381,9 +361,6 @@ class SACDMultiWMPolicy(BasePolicy):
         batch, output = self.calculate_intrinsic_reward(batch)
         batch = self.compute_return(
                 batch, buffer, indice, self._target_q, self._gamma, self._rew_norm)
-        # batch = self.compute_nstep_return(
-        #     batch, buffer, indice, self._target_q,
-        #     self._gamma, self._n_step, self._rew_norm)
         return batch, output
 
     def _target_q(self, buffer: ReplayBuffer,
@@ -456,11 +433,8 @@ class SACDMultiWMPolicy(BasePolicy):
             world_model = self.world_models[i]
             inputs = np.concatenate((batch.obs[:, i], np.expand_dims(batch.act[:, i], axis=-1)), axis=1)
             pred_next_obs = world_model(to_torch(inputs, device=world_model.device, dtype=torch.float))
-            # pred_obs_delta = self.world_model(to_torch(inputs, device=self.world_model.device, dtype=torch.float))
             true_next_obs = to_torch(batch.obs_next[:, i], device=world_model.device, dtype=torch.float)
             wm_loss = F.mse_loss(pred_next_obs, true_next_obs)
-            # true_obs_delta = true_next_obs - batch.obs[:, i]
-            # wm_loss = F.mse_loss(true_obs_delta, pred_obs_delta)
             self.wm_optims[i].zero_grad()
             wm_loss.backward()
             self.wm_optims[i].step()
@@ -494,7 +468,4 @@ class SACDMultiWMPolicy(BasePolicy):
         output[f'loss/critic1'] = total_critic1_loss.sum()
         output[f'loss/critic2'] = total_critic2_loss.sum()  
         output[f'loss/world_model'] = total_wm_loss.sum()
-
-        
-
         return output

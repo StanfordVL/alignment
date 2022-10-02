@@ -11,7 +11,7 @@ from tianshou.data import Batch, to_torch_as, ReplayBuffer
 
 
 class SACDMultiPolicy(BasePolicy):
-    """Implementation of Discrete Soft Actor-Critic. arXiv:1910.07207
+    """Implementation of Multiagent Soft Actor-Critic.
 
     :param torch.nn.Module actor: the actor network following the rules in
         :class:`~tianshou.policy.BasePolicy`. (s -> logits)
@@ -32,6 +32,9 @@ class SACDMultiPolicy(BasePolicy):
         defaults to ``False``.
     :param bool ignore_done: ignore the done flag while training the policy,
         defaults to ``False``.
+    :param int estimation_step: the number of estimation step, should be an int
+            greater than 0, defaults to 1.
+    :param bool grads_logging: whether to log gradients or not
 
     .. seealso::
 
@@ -148,7 +151,6 @@ class SACDMultiPolicy(BasePolicy):
             dist = self.dist_fn(logit)
             act = dist.sample()
             log_prob = torch.log(logit + self.__eps)
-
             acts.append(act.unsqueeze(1))
             logits.append(logit.unsqueeze(1))
             log_probs.append(log_prob.unsqueeze(1))

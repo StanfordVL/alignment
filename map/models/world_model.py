@@ -8,10 +8,10 @@ from torch.optim import Adam
 from tianshou.data import to_torch, Batch
 
 class WorldModel(nn.Module):
-    def __init__(self, num_agent, layer_num, state_shape, action_shape,
-                 softmax=False, hidden_units=128, device='cpu', wm_noise_level=0.0):
+    def __init__(self, num_agent, layer_num, state_shape, hidden_units=128, device='cpu', wm_noise_level=0.0):
         super().__init__()
         self.device = device
+        # plus one for the action
         self.model = [
             nn.Linear(np.prod(state_shape) + 1, hidden_units),
             nn.ReLU()]
@@ -22,22 +22,15 @@ class WorldModel(nn.Module):
         self.model = nn.Sequential(*self.model)
         self.optim = Adam(self.model.parameters(), lr=1e-3)
         self.wm_noise_level = wm_noise_level
-        # self.initialize()
 
     def forward(self, s, **kwargs):
         s = to_torch(s, device=self.device, dtype=torch.float)
         batch = s.shape[0]
         s = s.view(batch, -1)
         logits = self.model(s)
-        if self.wm_noise_level:
+        if self.wm_noise_level != 0.0:
             logits += torch.normal(torch.zeros(logits.size()), self.wm_noise_level).to(logits.device)
         return logits
-
-    # def initialize(self):
-    #     for m in self.modules():
-    #         if isinstance(m, torch.nn.Linear):
-    #             torch.nn.init.orthogonal_(m.weight)
-    #             torch.nn.init.zeros_(m.bias)
 
     def learn(self, batch: Batch, **kwargs) -> Dict[str, float]:
         total_loss = np.zeros(self.num_agent)

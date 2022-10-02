@@ -32,6 +32,13 @@ class SACDMultiCCWMPolicy(BasePolicy):
         defaults to ``False``.
     :param bool ignore_done: ignore the done flag while training the policy,
         defaults to ``False``.
+    :param int estimation_step: the number of estimation step, should be an int
+            greater than 0, defaults to 1.
+    :param int num_adv: the number of adversaries
+    :param int num_landmark: the number of landmarks
+    :param list obs_radii: the observable radii of the agents
+    :param str intr_rew_options: a string of the intrinsic reward type being used
+    :param bool grads_logging: whether to log gradients or not
 
     .. seealso::
 
@@ -56,13 +63,11 @@ class SACDMultiCCWMPolicy(BasePolicy):
                  reward_normalization: bool = False,
                  ignore_done: bool = False,
                  estimation_step: int = 1,
-                 act_dims: List[int] = [],
                  num_adv: int = 0,
                  num_landmark: int = 0,
                  obs_radii: List[float]=None,
                  intr_rew_options: str='000',
                  grads_logging: bool = False,
-                 only_self_pred: bool = False,
                  **kwargs) -> None:
         super().__init__(**kwargs)
         assert 0 <= tau <= 1, 'tau should in [0, 1]'
@@ -74,7 +79,6 @@ class SACDMultiCCWMPolicy(BasePolicy):
         self._n_step = estimation_step
         self._rm_done = ignore_done
         self.dist_fn = dist_fn
-        self.act_dims = act_dims
         self.intr_rew_options = intr_rew_options
         self.num_adv = num_adv
         self.total_num_agt = len(actors)
@@ -101,7 +105,6 @@ class SACDMultiCCWMPolicy(BasePolicy):
                            ('critic2_', self.critic2s),
                            ('world_model_', self.world_models)]
         self.grads_logging = grads_logging
-        self.only_self_pred = only_self_pred
         self.max_error = 0
 
     def save(self, logdir, type="best"):
@@ -247,7 +250,7 @@ class SACDMultiCCWMPolicy(BasePolicy):
         num_agents = self.total_num_agt
         batch_size = batch.obs.shape[0]
         intr_rew = np.zeros(batch.rew.shape)
-        if not self.partial_obs or self.only_self_pred or self.intr_rew_options in ['curiosity', 'self_adv']: # for full obs, self-pred baseline (partial obs) and curiosity baseline
+        if not self.partial_obs or self.intr_rew_options in ['curio_self', 'elign_self']: # for full obs, self-pred baseline (partial obs) and curiosity baseline
             # compute my own prediction loss and assume it's also agent j's prediction loss on my obs + act
             l2_losses = np.zeros((batch_size, num_agents)) # (batch_size, n_agents)
             for i in range(self.num_adv, num_agents):
@@ -268,20 +271,20 @@ class SACDMultiCCWMPolicy(BasePolicy):
 
             if self.intr_rew_options == 'self_adv':
                 intr_rew = l2_losses
-            elif self.intr_rew_options == 'curiosity':
+            elif self.intr_rew_options == 'curio_self':
                 intr_rew = l2_losses / self.max_error
             else: # only self pred
                 intr_rew = -l2_losses # (batch_size, n_agents)
             
         else:
-            if self.intr_rew_options == '111': # intr rew from both both
+            if self.intr_rew_options == 'elign_both': # intr rew from both both
                 j_list = list(range(num_agents))
-            elif self.intr_rew_options == '101' or self.intr_rew_options == 'ma_curiosity': # intr rew from good agts only
+            elif self.intr_rew_options == 'elign_team' or self.intr_rew_options == 'curio_team': # intr rew from good agts only
                 j_list = list(range(self.num_adv, num_agents))
-            elif self.intr_rew_options == '110': # intr rew from adversaries only
+            elif self.intr_rew_options == 'elign_adv': # intr rew from adversaries only
                 j_list = list(range(0, self.num_adv))
             else:  # no intr rew
-                print("Invalid intr rew options. Should use SACDMultiPolicy instead.")
+                print("Invalid intr rew options.")
                 raise NotImplementedError
             inter_obs_percents = np.zeros((batch_size, num_agents))
             inter_freqs = np.zeros((batch_size, num_agents))
@@ -317,12 +320,12 @@ class SACDMultiCCWMPolicy(BasePolicy):
 
                 pred_losses = pred_losses.view(batch_size, -1) #(bs, j)
 
-                if self.intr_rew_options == '111': # intr rew from both both
+                if self.intr_rew_options == 'elign_both': # intr rew from both both
                     # incentivize good agts to be 1) unpredictable by advs and 2) predictable by good agts
                     intr_rew[:, i] += 1 / nonzero_obs_count * (pred_losses[:, :self.num_adv].sum(dim=1) - pred_losses[:, self.num_adv:].sum(dim=1)).detach().cpu().numpy()
-                elif self.intr_rew_options == '101': # intr rew from good agts only
+                elif self.intr_rew_options == 'elign_team': # intr rew from good agts only
                     intr_rew[:, i] += 1 / nonzero_obs_count * -pred_losses.sum(dim=1).detach().cpu().numpy()
-                elif self.intr_rew_options == '110' or self.intr_rew_options == 'ma_curiosity': # maximizing losses: 1) intr rew from adversaries only; 2) ma curiosity
+                elif self.intr_rew_options == 'elign_adv' or self.intr_rew_options == 'curio_team': # maximizing losses: 1) intr rew from adversaries only; 2) ma curiosity
                     intr_rew[:, i] += 1 / nonzero_obs_count * pred_losses.sum(dim=1).detach().cpu().numpy()
                 else:  # no intr rew
                     print("Invalid intr rew options. Should use SACDMultiPolicy instead.")
@@ -335,7 +338,7 @@ class SACDMultiCCWMPolicy(BasePolicy):
         #for i in range(num_agents):
         for i in range(self.num_adv, num_agents):
             output[f'intr_rew/actor_{i}'] = intr_rew[:, i].mean()
-            if self.partial_obs and self.intr_rew_options in ['101', '110', '111', 'ma_curiosity']:
+            if self.partial_obs and self.intr_rew_options in ['elign_team', 'elign_adv', 'elign_both', 'curio_team']:
                 output[f'inter_freq/agent_{i}'] = inter_freqs[:, i].mean()
                 denom = output[f'inter_freq/agent_{i}'] if output[f'inter_freq/agent_{i}'] != 0.0 else 1.0
                 output[f'inter_obs_size/agent_{i}'] = (inter_obs_percents[:, i] / denom).mean()
