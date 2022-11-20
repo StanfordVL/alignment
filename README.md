@@ -1,4 +1,4 @@
-# ELIGN: Expectation Alignment as a Multi-agent Intrinsic Reward
+# [ELIGN: Expectation Alignment as a Multi-agent Intrinsic Reward](https://arxiv.org/pdf/2210.04365.pdf)
 
 This repository contains code to train and evaluate multiple agents with and without 
 the expectation alignment intrinsic reward in both the multi-agent particle (MAP) and Google research 
