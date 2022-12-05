@@ -309,24 +309,16 @@ class SACDMultiCCWMPolicy(BasePolicy):
                 # zero out the losses for invisible agents
                 obs_mask = to_torch(~np.all(obs_n == 0, axis=1), device=self.world_models[i].device, dtype=torch.float)
                 pred_losses *= obs_mask
-                nonzero_obs_count = np.count_nonzero(batch.obs[:,i][:, j_list], axis=1)
-                inter_num = nonzero_obs_count - 1 # minus self 
-
-                inter_obs_percents[:, i] = sum_obs_percents / np.maximum(inter_num, np.ones(inter_num.shape)) # avoid dividing by 0
-                inter_freqs[:, i] = np.minimum(inter_num, np.ones(inter_num.shape)) # 1 if there's any intersection
-                # assert np.count_nonzero(inter_obs_percents[:, i] == 0) >= np.count_nonzero(inter_num == 0)
-                # print(f'inter freq for {i}:', inter_freqs[:10, i])
-                # print(f'inter obs size for {i}:', inter_obs_percents[:10, i] )
 
                 pred_losses = pred_losses.view(batch_size, -1) #(bs, j)
 
                 if self.intr_rew_options == 'elign_both': # intr rew from both both
                     # incentivize good agts to be 1) unpredictable by advs and 2) predictable by good agts
-                    intr_rew[:, i] += 1 / nonzero_obs_count * (pred_losses[:, :self.num_adv].sum(dim=1) - pred_losses[:, self.num_adv:].sum(dim=1)).detach().cpu().numpy()
+                    intr_rew[:, i] += 1 / len(j_list) * (pred_losses[:, :self.num_adv].sum(dim=1) - pred_losses[:, self.num_adv:].sum(dim=1)).detach().cpu().numpy()
                 elif self.intr_rew_options == 'elign_team': # intr rew from good agts only
-                    intr_rew[:, i] += 1 / nonzero_obs_count * -pred_losses.sum(dim=1).detach().cpu().numpy()
+                    intr_rew[:, i] += 1 / len(j_list) * -pred_losses.sum(dim=1).detach().cpu().numpy()
                 elif self.intr_rew_options == 'elign_adv' or self.intr_rew_options == 'curio_team': # maximizing losses: 1) intr rew from adversaries only; 2) ma curiosity
-                    intr_rew[:, i] += 1 / nonzero_obs_count * pred_losses.sum(dim=1).detach().cpu().numpy()
+                    intr_rew[:, i] += 1 / len(j_list) * pred_losses.sum(dim=1).detach().cpu().numpy()
                 else:  # no intr rew
                     print("Invalid intr rew options. Should use SACDMultiPolicy instead.")
                     raise NotImplementedError
